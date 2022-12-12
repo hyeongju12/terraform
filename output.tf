@@ -1,7 +1,9 @@
-output "eks_cluster_endpoint" {
-  value = aws_eks_cluster.aws_eks.endpoint
+output "s3_bucket_arn" {
+    value = aws_s3_bucket.terraform_state.arn
+    description = "The arn of s3 bucket"
 }
 
-output "eks_cluster_certificate_authority" {
-  value = aws_eks_cluster.aws_eks.certificate_authority 
+output "aws_dynamodb_table" {
+    value = aws_dynamodb_table.terraform_locks.name
+    description = "The name of DynamoDB Table"
 }

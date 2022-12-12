@@ -1,96 +1,54 @@
-resource "aws_iam_role" "eks_cluster" {
-  name = "eks-cluster"
-  assume_role_policy = <<POLICY
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "eks.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
+provider "aws" {
+    region = "ap-northeast-2"
+    profile = "default"
+}
+
+
+# 1. 상태 파일을 저장하기 위한 버킷 생성
+# s3 bucket에서 상태 파일을 관리하기위한 bucket 생성
+resource "aws_s3_bucket" "terraform_state" {
+    bucket = "terraform-up-and-running-state-hjyoo"
+
+    # 삭제 방지, terraform destroy 실행시 오류 발생
+    lifecycle {
+        prevent_destroy = false
     }
-  ]
-}
-POLICY
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEKSClusterPolicy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
-  role       = aws_iam_role.eks_cluster.name
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEKSServicePolicy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSServicePolicy"
-  role       = aws_iam_role.eks_cluster.name
-}
-
-resource "aws_eks_cluster" "aws_eks" {
-  name     = "eks_cluster"
-  role_arn = aws_iam_role.eks_cluster.arn
-
-  vpc_config {
-    subnet_ids = ["subnet-78c9f234", "subnet-a6c2cafa"]
-  }
-}
-
-resource "aws_iam_role" "eks_nodes" {
-  name = "eks-node-group"
-
-  assume_role_policy = <<POLICY
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "ec2.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
+    # 상태 파일의 버전 관리
+    versioning {
+        enabled = false
     }
-  ]
-}
-POLICY
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEKSWorkerNodePolicy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-  role       = aws_iam_role.eks_nodes.name
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEKS_CNI_Policy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-  role       = aws_iam_role.eks_nodes.name
+    # 서버 암호화
+    server_side_encryption_configuration {
+        rule {
+            apply_server_side_encryption_by_default {
+                sse_algorithm = "AES256"
+            }
+        }
+    }
 }
 
-resource "aws_iam_role_policy_attachment" "AmazonEC2ContainerRegistryReadOnly" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-  role       = aws_iam_role.eks_nodes.name
+resource "aws_dynamodb_table" "terraform_locks" {
+    name         = "terraform-up-and-running-locks"
+    billing_mode = "PAY_PER_REQUEST"
+    hash_key = "LockID"
+
+    attribute {
+        name = "LockID"
+        type = "S"
+    }
 }
 
-resource "aws_eks_node_group" "node" {
-  instance_types = ["t3.small"]
-  cluster_name    = aws_eks_cluster.aws_eks.name
-  node_group_name = "EKS-WORKER-NODE"
-  node_role_arn   = aws_iam_role.eks_nodes.arn
-  subnet_ids      = ["subnet-78c9f234"]
 
-  scaling_config {
-    desired_size = 1
-    max_size     = 3
-    min_size     = 1
-  }
 
-  tags = {
-    Name = "WORKER-NODE"
-  }
+# 2. terraform이 s3 버킷에 상태 파일을 저장하도록 하려면
+# backend bucket을 먼저 생성을 하고나서 아래 backend 코드를 포함하여 terraform init을 해야함.
+# terraform {
+#     backend "s3" {
+#         bucket = "terraform-up-and-running-state-hjyoo"
+#         key = "global/s3/terraform.tfstate"
+#         region = "ap-northeast-2"
 
-  # Ensure that IAM Role permissions are created before and deleted after EKS Node Group handling.
-  # Otherwise, EKS will not be able to properly delete EC2 Instances and Elastic Network Interfaces.
-  depends_on = [
-    aws_iam_role_policy_attachment.AmazonEKSWorkerNodePolicy,
-    aws_iam_role_policy_attachment.AmazonEKS_CNI_Policy,
-    aws_iam_role_policy_attachment.AmazonEC2ContainerRegistryReadOnly,
-  ]
-}
+#         dynamodb_table = "terraform-up-and-running-locks"
+#         encrypt = true
+#     }
+# }
